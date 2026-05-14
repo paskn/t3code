@@ -189,7 +189,12 @@ const make = Effect.gen(function* () {
           { role: "togglefullscreen" },
         ],
       },
-      { role: "windowMenu" },
+      environment.platform === "darwin"
+        ? { role: "windowMenu" }
+        : {
+            label: "Window",
+            submenu: [{ role: "minimize" }, { role: "togglefullscreen" }],
+          },
       {
         role: "help",
         submenu: [

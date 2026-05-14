@@ -129,4 +129,42 @@ describe("DesktopApplicationMenu", () => {
       assert.equal(yield* Deferred.await(selectedAction), "open-settings");
     }),
   );
+
+  it.effect("does not reserve Ctrl+W for window close on Linux", () =>
+    Effect.gen(function* () {
+      const selectedAction = yield* Deferred.make<string>();
+      const applicationMenuTemplate =
+        yield* Deferred.make<readonly Electron.MenuItemConstructorOptions[]>();
+
+      yield* Effect.gen(function* () {
+        const menu = yield* DesktopApplicationMenu.DesktopApplicationMenu;
+        yield* menu.configure;
+      }).pipe(
+        Effect.provide(
+          DesktopApplicationMenu.layer.pipe(
+            Layer.provideMerge(makeElectronMenuLayer(applicationMenuTemplate)),
+            Layer.provideMerge(makeDesktopWindowLayer(selectedAction)),
+            Layer.provideMerge(desktopUpdatesLayer),
+            Layer.provideMerge(electronDialogLayer),
+            Layer.provideMerge(electronAppLayer),
+            Layer.provideMerge(
+              DesktopEnvironment.layer(environmentInput).pipe(
+                Layer.provide(Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({}))),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      const template = yield* Deferred.await(applicationMenuTemplate);
+      const windowMenu = template.find((item) => item.label === "Window");
+      assert.isDefined(windowMenu);
+      assert.notEqual(windowMenu.role, "windowMenu");
+      if (!Array.isArray(windowMenu.submenu)) {
+        throw new Error("Expected Window menu submenu to be an array.");
+      }
+      assert.isUndefined(windowMenu.submenu.find((item) => item.role === "close"));
+      assert.isUndefined(windowMenu.submenu.find((item) => item.accelerator === "CmdOrCtrl+W"));
+    }),
+  );
 });
