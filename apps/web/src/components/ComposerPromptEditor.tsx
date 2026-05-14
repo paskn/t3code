@@ -64,6 +64,7 @@ import {
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
 import { basenameOfPath, getVscodeIconUrlForEntry, inferEntryKindFromPath } from "~/vscode-icons";
+import { findBackwardKillWordStart } from "~/textEditing";
 import {
   COMPOSER_INLINE_CHIP_CLASS_NAME,
   COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
@@ -1118,6 +1119,78 @@ function ComposerInlineTokenBackspacePlugin() {
   return null;
 }
 
+function ComposerBackwardKillWordPlugin() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.key.toLowerCase() !== "w" ||
+        !event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        event.shiftKey
+      ) {
+        return;
+      }
+
+      let handled = false;
+      editor.update(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection)) {
+          return;
+        }
+
+        const value = $getRoot().getTextContent();
+        const expandedRange = getSelectionRangeForExpandedComposerOffsets(selection);
+        if (!expandedRange) {
+          return;
+        }
+
+        const deletion =
+          expandedRange.start === expandedRange.end
+            ? {
+                start: findBackwardKillWordStart(value, expandedRange.start),
+                end: expandedRange.end,
+              }
+            : expandedRange;
+        const selectionStart = collapseExpandedComposerCursor(value, deletion.start);
+        const selectionEnd = collapseExpandedComposerCursor(value, deletion.end);
+        $setSelectionRangeAtComposerOffsets(selectionStart, selectionEnd);
+        const deletionSelection = $getSelection();
+        if (!$isRangeSelection(deletionSelection)) {
+          return;
+        }
+        deletionSelection.insertText("");
+        handled = true;
+      });
+
+      if (!handled) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    let activeRootElement: HTMLElement | null = null;
+    const unregisterRootListener = editor.registerRootListener((rootElement, prevRootElement) => {
+      prevRootElement?.removeEventListener("keydown", onKeyDown, true);
+      rootElement?.addEventListener("keydown", onKeyDown, true);
+      activeRootElement = rootElement;
+    });
+
+    return () => {
+      activeRootElement?.removeEventListener("keydown", onKeyDown, true);
+      unregisterRootListener();
+    };
+  }, [editor]);
+
+  return null;
+}
+
 function ComposerSurroundSelectionPlugin(props: {
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   skills: ReadonlyArray<ServerProviderSkill>;
@@ -1635,6 +1708,7 @@ function ComposerPromptEditorInner({
         <ComposerInlineTokenArrowPlugin />
         <ComposerInlineTokenSelectionNormalizePlugin />
         <ComposerInlineTokenBackspacePlugin />
+        <ComposerBackwardKillWordPlugin />
         <HistoryPlugin />
       </div>
     </ComposerTerminalContextActionsContext>
